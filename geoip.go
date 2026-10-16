@@ -4,10 +4,17 @@ import (
 	"embed"
 	"errors"
 	"net/netip"
+	"sync"
+	"sync/atomic"
 )
 
 //go:embed ccc.csv ipinfo_lite.csv hosting.csv
 var csvFiles embed.FS
+
+var (
+	initializeMu   sync.Mutex
+	activeDatabase atomic.Pointer[database]
+)
 
 var (
 	ErrInvalidIPv4    = errors.New("geoip: not a valid IPv4 address")
@@ -16,9 +23,7 @@ var (
 	ErrNotInitialized = errors.New("geoip: database is not initialized")
 )
 
-// Database is an immutable IPv4 index, safe for concurrent queries.
-// Its zero value is not ready for use; construct it with Initialize.
-type Database struct {
+type database struct {
 	countries [26 * 26]country
 	ranges    []addressRange
 	buckets   [1 << 16]indexBucket
@@ -54,32 +59,41 @@ type country struct {
 }
 
 // Initialize validates the embedded ccc.csv, ipinfo_lite.csv, and hosting.csv,
-// then builds an in-memory index. It needs no external files. On failure it
-// returns a nil database and an error identifying the invalid file or record.
-func Initialize() (*Database, error) {
-	database := new(Database)
+// then builds the package-level in-memory index. It needs no external files.
+// Successful initialization is reused, and concurrent calls are safe.
+// On failure it returns an error identifying the invalid file or record.
+func Initialize() error {
+	initializeMu.Lock()
+	defer initializeMu.Unlock()
+	if activeDatabase.Load() != nil {
+		return nil
+	}
+	database := new(database)
 	if err := readCountries(csvFiles, "ccc.csv", &database.countries); err != nil {
-		return nil, err
+		return err
 	}
 	geography, err := readRanges(csvFiles, "ipinfo_lite.csv", &database.countries)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	hosting, err := readRanges(csvFiles, "hosting.csv", nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	database.ranges = combineRanges(geography, hosting)
 	database.buildBuckets()
-	return database, nil
+	activeDatabase.Store(database)
+	return nil
 }
 
 // GetIpv4Info returns information for a public, native IPv4 address.
 // IPv6 (including IPv4-mapped IPv6), CIDRs, ports, zones, and malformed input
 // return ErrInvalidIPv4. Special-use addresses return ErrNonPublicIPv4, and
 // public addresses absent from ipinfo_lite.csv return ErrNotFound.
-func (database *Database) GetIpv4Info(ip string) (IPv4Info, error) {
-	if database == nil || len(database.ranges) == 0 {
+// Calls before successful initialization return ErrNotInitialized.
+func GetIpv4Info(ip string) (IPv4Info, error) {
+	database := activeDatabase.Load()
+	if database == nil {
 		return IPv4Info{}, ErrNotInitialized
 	}
 	address, err := netip.ParseAddr(ip)

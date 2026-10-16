@@ -1,5 +1,5 @@
 /*
-Package geoip provides read-only country and hosting lookups for public IPv4
+Package GeoIP provides read-only country and hosting lookups for public IPv4
 addresses using three embedded CSV files. It has no external dependencies
 and performs no network requests.
 
@@ -19,10 +19,13 @@ or duplicate ranges within either address file. Input order does not matter.
 Bare addresses are treated as /32. Validation checks data consistency, not the
 real-world accuracy or freshness of the supplied geolocation classifications.
 
-The resulting database is immutable and supports concurrent lookups without
-locks or disk access. Country and hosting boundaries are combined in memory;
-a /16 directory limits each lookup to a small binary search. No source files
-are rewritten, reordered, or compacted on disk.
+Initialize prepares a shared, immutable package-level index. It is safe to call
+concurrently, and subsequent calls after success return nil without rebuilding
+the index. GetIpv4Info returns ErrNotInitialized until initialization succeeds.
+Lookups support concurrency without locks or disk access. Country and hosting
+boundaries are combined in memory; a /16 directory limits each lookup to a
+small binary search. No source files are rewritten, reordered, or compacted
+on disk.
 
 A successful result has CountryCode and IsHosting fields, plus Continent and
 CountryName methods. IsHosting reports membership in hosting.csv: false means
@@ -39,11 +42,10 @@ This is address-space classification, not a live routing or reachability test.
 
 Typical use:
 
-	database, err := geoip.Initialize()
-	if err != nil {
+	if err := GeoIP.Initialize(); err != nil {
 		log.Fatal(err)
 	}
-	info, err := database.GetIpv4Info("8.8.8.8")
+	info, err := GeoIP.GetIpv4Info("8.8.8.8")
 	if err != nil {
 		log.Fatal(err)
 	}

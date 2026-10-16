@@ -57,7 +57,7 @@ func appendRange(ranges []addressRange, entry addressRange) []addressRange {
 	return append(ranges, entry)
 }
 
-func (database *Database) buildBuckets() {
+func (database *database) buildBuckets() {
 	for position := range database.buckets {
 		start := uint32(position) << 16
 		database.buckets[position].policy = rangePolicy(start, start|0xffff)
