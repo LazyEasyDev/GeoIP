@@ -49,4 +49,4 @@ Typical use:
 	}
 	fmt.Println(info.CountryCode, info.IsHosting, info.Continent(), info.CountryName())
 */
-package geoip
+package GeoIP
